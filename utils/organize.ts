@@ -1,130 +1,94 @@
+import { shuffle } from 'lodash';
+
 export interface Person {
   id: number;
   name: string;
   commercialSuccess: number;
   residentialSuccess: number;
   notCompatible: number[];
-  cannotBeChairman: boolean;
+  assignAsChairman: boolean;
+  landExpertise: number;
+  BPPE: number;
+  type: string;
+  doNotAssign: boolean;
 }
 
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffledArray = [...array];
-
-  for (let i = shuffledArray.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffledArray[i], shuffledArray[j]] = [shuffledArray[j], shuffledArray[i]];
-  }
-
-  return shuffledArray;
+export interface Panel {
+  roomNumber: number;
+  type: string;
+  chairman: Person | null;
+  members: Person[];
 }
 
-function removeFromArray<T>(array: T[], item: T): T[] {
-  const index = array.indexOf(item);
-  if (index > -1) {
-    array.splice(index, 1);
-  }
-  return array;
-}
-
-
-export function createGroups(
-  people: Person[],
-  peoplePerGroup: number,
-  residentialGroupsCount: number,
-  commercialGroupsCount: number,
-): Array<{ type: string; chairman: Person; members: Person[] }> {
-  const sortedCommercial = [...people].sort((a, b) => b.commercialSuccess - a.commercialSuccess);
-  const sortedResidential = [...people].sort((a, b) => b.residentialSuccess - a.residentialSuccess);
-  console.log(sortedCommercial);
-  console.log(sortedResidential);
-
-  const groups: Array<{ type: string; chairman: Person; members: Person[] }> = [];
-
-  function createGroup(type: string, sortedPeople: Person[]): { type: string; chairman: Person; members: Person[] } | null {
-    const groupMembers: Person[] = [];
-    const topPercentage = 0.3; // You can adjust this to control the range of top performers
-    const topCandidatesCount = Math.ceil(sortedPeople.length * topPercentage);
-
-    // Find the chairman with the highest commercial or residential success
-    const findChairman = (type: string, sortedPeople: Person[]): Person | null => {
-      for (const person of sortedPeople) {
-        if (!person.cannotBeChairman) {
-          return person;
+export function assignMembersToPanels(members: Person[], panels: Panel[], peoplePerGroup: number): [Panel[], Person[]] {
+    let availableMembers = members.filter(member => !member.doNotAssign && member.type !== 'CS');
+    let unAvailableMembers = members.filter(member => member.doNotAssign || member.type === 'CS');
+    // Count the frequency of each panel type
+    const panelTypeFrequency: { [key: string]: number } = {};
+    for (let panel of panels) {
+        if (panelTypeFrequency[panel.type]) {
+            panelTypeFrequency[panel.type]++;
+        } else {
+            panelTypeFrequency[panel.type] = 1;
         }
-      }
-      return null;
-    };
-
-    const chairman = findChairman(type, sortedPeople);
-    if (!chairman) {
-      return null; // Return null if chairman is not found
     }
 
-    // Remove the chairman from the sortedPeople array
-    removeFromArray(sortedPeople, chairman);
+    // Sort panels based on the frequency of their type
+    panels.sort((a, b) => panelTypeFrequency[a.type] - panelTypeFrequency[b.type]);
 
-    for (let j = 0; j < peoplePerGroup - 1; j++) {
-      let randomIndex = Math.floor(Math.random() * topCandidatesCount);
-      let person = sortedPeople[randomIndex];
+    for (let panel of panels) {
+        availableMembers = shuffle(availableMembers);
 
-      // Check if the person is compatible with the chairman and the current group members
-      while (person && (groupMembers.some(member => member.notCompatible.includes(person.id)) || chairman.notCompatible.includes(person.id))) {
-        randomIndex = Math.floor(Math.random() * topCandidatesCount);
-        person = sortedPeople[randomIndex];
-      }
+        // Sort members based on the expertise relevant to the current panel type
+        availableMembers.sort((a, b) => {
+            switch(panel.type) {
+                case 'C': return b.commercialSuccess - a.commercialSuccess;
+                case 'L': return b.landExpertise - a.landExpertise;
+                case 'R': return b.residentialSuccess - a.residentialSuccess;
+                case 'BPP': return b.BPPE - a.BPPE;
+                default: return 0;
+            }
+        });
 
-      if (!person) break;
+        // Assign chairman to the panel
+        let chairman = availableMembers.find(member => member.assignAsChairman);
+        if (chairman) {
+            panel.chairman = chairman;
+            availableMembers = availableMembers.filter(member => member.id !== chairman?.id);
+        } else {
+            panel.chairman = null;
+        }
 
-      // Remove the person from the sortedPeople array
-      sortedPeople.splice(randomIndex, 1);
-      groupMembers.push(person);
+        panel.members.push(...panel.chairman ? [panel.chairman] : [])
+
+        // Assign members to the panel
+        let panelMembersCount = panel.chairman ? 1 : 0; // If chairman exists, count as 1
+        while (panelMembersCount < peoplePerGroup && availableMembers.length > 0) {
+            let member = availableMembers.shift();
+            if (!panel.members.some(m => member!.notCompatible.includes(m.id)) && (!panel.chairman || !member!.notCompatible.includes(panel.chairman.id))) {
+                panel.members.push(member!);
+                panelMembersCount++;
+            } else {
+                availableMembers.push(member!); // Push the member back to the list if they are not compatible
+            }
+        }
     }
 
-    if (groupMembers.length === 0) {
-      return null;
-    }
-
-    return { type, chairman, members: groupMembers };
-  }
-
-
-
-  let isCommercialGroup = true;
-  let commercialGroupsCreated = 0;
-  let residentialGroupsCreated = 0;
-
-  while (commercialGroupsCreated < commercialGroupsCount || residentialGroupsCreated < residentialGroupsCount) {
-    let group;
-
-    if (isCommercialGroup && commercialGroupsCreated < commercialGroupsCount) {
-      group = createGroup('Commercial', sortedCommercial);
-      if (group) {
-        groups.push(group);
-        removeFromArray(sortedResidential, group.chairman);
-        group.members.forEach((member) => removeFromArray(sortedResidential, member));
-        commercialGroupsCreated++;
-      }
-    } else if (!isCommercialGroup && residentialGroupsCreated < residentialGroupsCount) {
-      group = createGroup('Residential', sortedResidential);
-      if (group) {
-        groups.push(group);
-        removeFromArray(sortedCommercial, group.chairman);
-        group.members.forEach((member) => removeFromArray(sortedCommercial, member));
-        residentialGroupsCreated++;
-      }
-    }
-
-    // Alternate between commercial and residential groups
-    isCommercialGroup = !isCommercialGroup;
-  }
-
-  // Handle leftover people by creating additional residential groups
-  while (sortedResidential.length > 0) {
-    const group = createGroup('Residential', sortedResidential);
-    if (group) {
-      groups.push(group);
-    }
-  }
-
-  return groups;
+    return [panels, availableMembers.concat(unAvailableMembers)];
 }
+
+export function getGroupTypeLabel(type: string): string {
+    switch(type) {
+        case 'C':
+            return "Commercial";
+        case 'L':
+            return "Land";
+        case 'R':
+            return "Residential";
+        case 'BPP':
+            return "BPP";
+        default:
+            return "";
+    }
+}
+
