@@ -151,7 +151,7 @@ const GroupSorter: React.FC = () => {
             <p className='text-sm text-center flex-1 mr-2'>Do Not Assign</p>
           </div>
         {people.map((person, index) => (
-        <div className="flex flex-wrap w-full justify-between items-center mb-2 bg-slate-700 border border-1 border-slate-500 rounded-md p-2">
+        <div key={index} className="flex flex-wrap w-full justify-between items-center mb-2 bg-slate-700 border border-1 border-slate-500 rounded-md p-2">
             <p className='w-10'>{person.id}.</p>
             <div className="name-input flex-1 mr-2">
               <input
